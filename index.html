@@ -31,7 +31,8 @@ table{width:100%;border-collapse:collapse;background:var(--panel);border:1px sol
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 const ST={not_started:'Not started',in_progress:'In progress',blocked:'Blocked',on_hold:'On hold',completed:'Completed',unknown:'Unknown'};
-let D,view='projects',q='',sf='';
+const DATA_REPO='electricarchmage/aurora-dashboard-data'; // private repo that holds transcripts
+let D,view='projects',q='',sf='',files=[];
 async function decrypt(pw,p){const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
 const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(p.salt),iterations:p.iter,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
 return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(p.iv)},k,b64(p.ct))));}
@@ -56,8 +57,25 @@ return `<div class="wrap"><table><tr><th>Person</th><th>Owns</th><th>Involved in
 function upcoming(){const r=[];D.projects.forEach(p=>{p.tasks.filter(t=>t.status!=='done'&&t.due).forEach(t=>r.push({d:t.due,k:'Task',x:t.text,w:t.assignee,p:p.name}));
 p.milestones.filter(m=>m.date).forEach(m=>r.push({d:m.date,k:'Milestone',x:m.title,w:p.owner,p:p.name}))});r.sort((a,b)=>a.d.localeCompare(b.d));
 return r.length?`<div class="wrap"><table><tr><th>Date</th><th>Type</th><th>Item</th><th>Project</th><th>Who</th></tr>${r.map(x=>`<tr><td>${esc(x.d)}</td><td>${x.k}</td><td>${esc(x.x)}</td><td>${esc(x.p)}</td><td>${esc(x.w||'–')}</td></tr>`).join('')}</table></div>`:'<p class="mute">No dated tasks or milestones yet.</p>'}
-function draw(){$('#nav').innerHTML=[['projects','Projects'],['people','People'],['upcoming','Schedule']].map(([k,v])=>`<button data-v="${k}" class="${view===k?'on':''}">${v}</button>`).join(' ')+' <button id="so">Sign out</button>';$('#so').onclick=()=>location.reload();
-$('#app').innerHTML={projects,people,upcoming}[view]();
-document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{view=b.dataset.v;draw()});
+function upload(){return `<div class="card" style="max-width:640px"><h3>Add transcripts</h3>
+<p class="mute">Files are saved to the private data repo, and the dashboard updates a few minutes later. This needs a GitHub token limited to that one repo (Contents: read and write). It stays in this browser tab only.</p>
+<label class="mute">GitHub token<br><input id="tk" type="password" autocomplete="off" value="${esc(sessionStorage.getItem('tk')||'')}" style="width:100%"></label>
+<p><input id="fp" type="file" accept=".vtt,.txt" multiple aria-label="Transcript files"></p><div id="rows"></div>
+<p><button class="go" id="up" disabled>Upload</button> <span id="us" class="mute" role="status"></span></p></div>`}
+function bindUpload(){const fp=$('#fp'),rows=$('#rows'),up=$('#up');
+fp.onchange=()=>{files=[...fp.files].map(f=>{const m=f.name.match(/(20\d\d)-?(\d\d)-?(\d\d)/);return{f,d:m?`${m[1]}-${m[2]}-${m[3]}`:new Date(f.lastModified).toISOString().slice(0,10)}});
+rows.innerHTML=files.map((x,i)=>`<div class="bar"><span style="flex:1;overflow-wrap:anywhere">${esc(x.f.name)}</span><input type="date" data-i="${i}" value="${x.d}" aria-label="Meeting date for ${esc(x.f.name)}"><span class="mute" id="s${i}"></span></div>`).join('');
+rows.querySelectorAll('input[type=date]').forEach(i=>i.onchange=e=>files[e.target.dataset.i].d=e.target.value);up.disabled=!files.length};
+up.onclick=async()=>{const t=$('#tk').value.trim();if(!t){$('#us').textContent='Paste your GitHub token first.';return}
+sessionStorage.setItem('tk',t);up.disabled=true;$('#us').textContent='';
+for(const [i,x] of files.entries()){const el=$('#s'+i);el.textContent='Uploading…';
+try{const c=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result.split(',')[1]);fr.readAsDataURL(x.f)});
+const n=x.d+'-'+x.f.name.replace(/[^\w.-]+/g,'_');
+const r=await fetch(`https://api.github.com/repos/${DATA_REPO}/contents/transcripts/${encodeURIComponent(n)}`,{method:'PUT',headers:{Authorization:'Bearer '+t,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},body:JSON.stringify({message:'Add transcript '+n,content:c})});
+el.textContent=r.ok?'Uploaded':r.status===422?'Already uploaded':[401,403,404].includes(r.status)?'Token rejected or lacks access to the data repo':'Failed ('+r.status+')'}catch{el.textContent='Network error'}}
+$('#us').textContent='Done. The dashboard refreshes after the Action finishes (a few minutes).'}}
+function draw(){$('#nav').innerHTML=[['projects','Projects'],['people','People'],['upcoming','Schedule'],['upload','Upload']].map(([k,v])=>`<button data-v="${k}" class="${view===k?'on':''}">${v}</button>`).join(' ')+' <button id="so">Sign out</button>';$('#so').onclick=()=>{sessionStorage.removeItem('tk');location.reload()};
+$('#app').innerHTML={projects,people,upcoming,upload}[view]();if(view==='upload')bindUpload();
+document.querySelectorAll('#nav button[data-v]').forEach(b=>b.onclick=()=>{view=b.dataset.v;draw()});
 const i=$('#q');if(i){i.oninput=e=>{q=e.target.value;const p=e.target.selectionStart;draw();const n=$('#q');n.focus();n.setSelectionRange(p,p)};$('#sf').onchange=e=>{sf=e.target.value;draw()}}}
 </script></body></html>
