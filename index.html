@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aurora WDC · Internal Dashboard</title>
+<style>
+:root{--bg:#f6f7f5;--panel:#fff;--ink:#16211f;--mute:#5d6b68;--line:#dde3e0;--acc:#0d6b5c;--acc-ink:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1514;--panel:#152220;--ink:#e4ece9;--mute:#8fa19d;--line:#263734;--acc:#4fc3ad;--acc-ink:#07201b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+h1{font-size:17px;margin:0 auto 0 0}main{max-width:1100px;margin:0 auto;padding:20px}
+button,input,select{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 11px}
+button{cursor:pointer}button.on,button.go{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+#lock{max-width:380px;margin:12vh auto;padding:0 20px}#lock form{display:flex;flex-direction:column;gap:10px}#lock h2{margin:0 0 12px;font-size:20px}#lock label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mute)}
+.err{color:#c0392b;min-height:1.4em}.mute{color:var(--mute)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}.bar input{flex:1;min-width:180px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.card h3{margin:0 0 4px;font-size:16px;display:flex;justify-content:space-between;gap:8px}
+.badge{font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);white-space:nowrap;align-self:flex-start}
+.s-in_progress{border-color:var(--acc);color:var(--acc)}.s-blocked{border-color:#c0392b;color:#c0392b}.s-completed{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.card h4{margin:12px 0 2px;font-size:13px;color:var(--mute);font-weight:600}.card ul{margin:0;padding-left:18px}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:0 7px;margin:0 4px 4px 0;font-size:13px}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line)}td,th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.wrap{overflow-x:auto}
+</style></head><body>
+<header><h1>Aurora WDC · Project dashboard</h1><span id="meta" class="mute"></span><nav id="nav" hidden></nav></header>
+<section id="lock"><h2>Sign in</h2>
+<form id="f"><label>Username<input id="u" autocomplete="username" autocapitalize="none" required autofocus></label><label>Password<input id="pw" type="password" autocomplete="current-password" required></label><button class="go">Sign in</button></form><p id="err" class="err" role="alert"></p></section>
+<main id="app" hidden></main>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const ST={not_started:'Not started',in_progress:'In progress',blocked:'Blocked',on_hold:'On hold',completed:'Completed',unknown:'Unknown'};
+let D,view='projects',q='',sf='';
+async function decrypt(pw,p){const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
+const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(p.salt),iterations:p.iter,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
+return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(p.iv)},k,b64(p.ct))));}
+$('#f').onsubmit=async e=>{e.preventDefault();$('#err').textContent='';
+let r;try{r=await fetch('data.enc.json',{cache:'no-store'});if(!r.ok)throw 0;r=await r.json()}catch{$('#err').textContent='No dashboard data has been published yet. Add a transcript to the data repo to create it.';return}
+try{D=await decrypt($('#u').value.trim().toLowerCase()+':'+$('#pw').value,r)}catch{$('#err').textContent='Incorrect username or password.';return}
+$('#pw').value='';$('#lock').hidden=true;$('#app').hidden=false;$('#nav').hidden=false;$('#meta').textContent=`${D.projects.length} projects · ${D.meetings.length} meetings · updated ${D.generated.slice(0,10)}`;draw()};
+const li=a=>a.length?`<ul>${a.map(x=>`<li>${x}</li>`).join('')}</ul>`:'<span class="mute">None recorded</span>';
+const sec=(t,a)=>`<h4>${t}</h4>${li(a)}`;
+function projects(){const L=D.projects.filter(p=>(!sf||p.status===sf)&&JSON.stringify(p).toLowerCase().includes(q.toLowerCase()));
+return `<div class="bar"><input id="q" placeholder="Search projects, people, tasks" value="${esc(q)}" aria-label="Search"><select id="sf" aria-label="Status"><option value="">All statuses</option>${Object.entries(ST).map(([k,v])=>`<option value="${k}"${sf===k?' selected':''}>${v}</option>`).join('')}</select></div>
+<div class="grid">${L.map(p=>`<article class="card"><h3>${esc(p.name)}<span class="badge s-${p.status}">${ST[p.status]}</span></h3>
+<div class="mute">Owner: ${esc(p.owner||'Unassigned')} · last discussed ${esc(p.updated)}</div><p>${esc(p.description)}</p>
+<h4>Team</h4>${p.team.length?p.team.map(t=>`<span class="chip">${esc(t)}</span>`).join(''):'<span class="mute">None recorded</span>'}
+${sec('Tasks',p.tasks.filter(t=>t.status!=='done').map(t=>`${esc(t.text)} <span class="mute">${esc(t.assignee||'unassigned')}${t.due?' · due '+esc(t.due):''}${t.status==='blocked'?' · blocked':''}</span>`))}
+${sec('Milestones',p.milestones.map(m=>`${esc(m.title)} <span class="mute">${esc(m.date||'no date')}</span>`))}
+${sec('Dependencies',p.dependencies.map(esc))}${sec('Assumptions',p.assumptions.map(esc))}${sec('Risks',p.risks.map(esc))}</article>`).join('')||'<p class="mute">No projects match.</p>'}</div>`}
+function people(){const m={};const g=n=>m[n]??=(m[n]={own:[],on:new Set,tasks:[]});
+D.projects.forEach(p=>{if(p.owner)g(p.owner).own.push(p.name);p.team.forEach(t=>g(t).on.add(p.name));
+p.tasks.filter(t=>t.status!=='done'&&t.assignee).forEach(t=>{g(t.assignee).on.add(p.name);g(t.assignee).tasks.push({...t,p:p.name})})});
+return `<div class="wrap"><table><tr><th>Person</th><th>Owns</th><th>Involved in</th><th>Open tasks</th></tr>${Object.entries(m).sort().map(([n,v])=>`<tr><td>${esc(n)}</td><td>${v.own.map(esc).join(', ')||'–'}</td><td>${[...v.on].map(esc).join(', ')}</td><td>${v.tasks.map(t=>`${esc(t.text)} <span class="mute">(${esc(t.p)}${t.due?', due '+esc(t.due):''})</span>`).join('<br>')||'–'}</td></tr>`).join('')}</table></div>`}
+function upcoming(){const r=[];D.projects.forEach(p=>{p.tasks.filter(t=>t.status!=='done'&&t.due).forEach(t=>r.push({d:t.due,k:'Task',x:t.text,w:t.assignee,p:p.name}));
+p.milestones.filter(m=>m.date).forEach(m=>r.push({d:m.date,k:'Milestone',x:m.title,w:p.owner,p:p.name}))});r.sort((a,b)=>a.d.localeCompare(b.d));
+return r.length?`<div class="wrap"><table><tr><th>Date</th><th>Type</th><th>Item</th><th>Project</th><th>Who</th></tr>${r.map(x=>`<tr><td>${esc(x.d)}</td><td>${x.k}</td><td>${esc(x.x)}</td><td>${esc(x.p)}</td><td>${esc(x.w||'–')}</td></tr>`).join('')}</table></div>`:'<p class="mute">No dated tasks or milestones yet.</p>'}
+function draw(){$('#nav').innerHTML=[['projects','Projects'],['people','People'],['upcoming','Schedule']].map(([k,v])=>`<button data-v="${k}" class="${view===k?'on':''}">${v}</button>`).join(' ')+' <button id="so">Sign out</button>';$('#so').onclick=()=>location.reload();
+$('#app').innerHTML={projects,people,upcoming}[view]();
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{view=b.dataset.v;draw()});
+const i=$('#q');if(i){i.oninput=e=>{q=e.target.value;const p=e.target.selectionStart;draw();const n=$('#q');n.focus();n.setSelectionRange(p,p)};$('#sf').onchange=e=>{sf=e.target.value;draw()}}}
+</script></body></html>
