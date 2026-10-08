@@ -52,8 +52,13 @@ A.boot = async onReady => {
     btn.disabled = false; btn.textContent = 'Sign in';
   };
 };
-function start(d, onReady) { $('#lock').hidden = true; $('#app').hidden = false; $('#nav').hidden = false; onReady(A.derive(A.normalize(d))); }
-A.refresh = async () => A.derive(A.normalize(await decryptWith(KEY, await fetchEnc())));
+function start(d, onReady) {
+  $('#lock').hidden = true; $('#app').hidden = false; $('#nav').hidden = false;
+  const D = A._D = A.derive(A.normalize(d)); A.FB = d.feedback?.token ? d.feedback : null;
+  onReady(D); document.dispatchEvent(new CustomEvent('aurora:ready'));
+}
+A.refresh = async () => { const d = await decryptWith(KEY, await fetchEnc()); A.FB = d.feedback?.token ? d.feedback : A.FB; return (A._D = A.derive(A.normalize(d))); };
+A.currentProjectName = id => A._D?.P.get(id)?.name || A._D?.P.get(A._D.alias?.[id])?.name || null;
 A.signOut = () => { sessionStorage.clear(); location.href = location.pathname; };
 
 /* Accept v1 payloads (from the old ingest.py) so nothing breaks before the first new run. */
